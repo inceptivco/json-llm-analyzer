@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -18,6 +18,12 @@ interface ModelConfigProps {
   onApiKeyChange: (apiKey: string) => void;
 }
 
+const LOCAL_STORAGE_KEYS = {
+  PROVIDER: 'ai-provider',
+  MODEL: 'ai-model',
+  API_KEY: 'ai-api-key'
+};
+
 export function ModelConfig({ 
   provider, 
   model, 
@@ -26,10 +32,34 @@ export function ModelConfig({
   onApiKeyChange 
 }: ModelConfigProps) {
   const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => {
+    return localStorage.getItem(LOCAL_STORAGE_KEYS.API_KEY) || '';
+  });
+
+  // Load saved settings on mount
+  useEffect(() => {
+    const savedProvider = localStorage.getItem(LOCAL_STORAGE_KEYS.PROVIDER) as ModelProvider;
+    const savedModel = localStorage.getItem(LOCAL_STORAGE_KEYS.MODEL) as ModelType;
+    const savedApiKey = localStorage.getItem(LOCAL_STORAGE_KEYS.API_KEY);
+
+    if (savedProvider) onProviderChange(savedProvider);
+    if (savedModel) onModelChange(savedModel);
+    if (savedApiKey) onApiKeyChange(savedApiKey);
+  }, []);
+
+  const handleProviderChange = (value: ModelProvider) => {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.PROVIDER, value);
+    onProviderChange(value);
+  };
+
+  const handleModelChange = (value: ModelType) => {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.MODEL, value);
+    onModelChange(value);
+  };
 
   const handleApiKeyChange = (value: string) => {
     setApiKey(value);
+    localStorage.setItem(LOCAL_STORAGE_KEYS.API_KEY, value);
     onApiKeyChange(value);
   };
 

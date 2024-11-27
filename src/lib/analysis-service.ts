@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { MatchResult } from './types';
 import { stripFormatting } from './json-utils';
+import { AIServiceFactory } from './ai-service';
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
@@ -36,11 +37,17 @@ Return the results in this exact format:
 
 export async function analyzeText(text: string, jsonStructure: string): Promise<MatchResult[]> {
   try {
-    // Strip formatting from JSON before sending to OpenAI
-    const rawJson = stripFormatting(jsonStructure);
+    const aiService = AIServiceFactory.getInstance();
+    
+    // Check if service is configured before proceeding
+    if (!aiService.isConfigured()) {
+      throw new Error('AI service not configured. Please check your API key and settings.');
+    }
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const rawJson = stripFormatting(jsonStructure);
+    const client = aiService.getClient();
+
+    const response = await client.chat.completions.create({
       messages: [
         { role: 'system', content: ANALYSIS_PROMPT },
         {
@@ -56,22 +63,23 @@ ${text}
 Remember to return the results in the exact format specified, with the "matches" array containing all found matches.`,
         },
       ],
+      model: aiService.getModel(), // Add this method to AIServiceFactory
       temperature: 0.2,
     });
 
     const content = response.choices[0].message.content;
     if (!content) {
-      throw new Error('No response from OpenAI');
+      throw new Error('No response from AI service');
     }
 
     const parsedResponse = JSON.parse(content);
     if (!parsedResponse.matches || !Array.isArray(parsedResponse.matches)) {
-      throw new Error('Invalid response format from OpenAI');
+      throw new Error('Invalid response format from AI service');
     }
 
     return parsedResponse.matches;
   } catch (error) {
     console.error('Error analyzing text:', error);
-    throw new Error('Failed to analyze text. Please try again.');
+    throw error; // Propagate the error for better handling
   }
 }

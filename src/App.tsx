@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { validateAndFormatJson } from '@/lib/json-utils';
 import { analyzeText } from '@/lib/analysis-service';
 import { updateJsonWithMatches } from '@/lib/json-service';
@@ -10,7 +10,8 @@ import { ApplyChanges } from '@/components/ApplyChanges';
 import { StepIndicator } from '@/components/StepIndicator';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ModelConfig, ModelProvider, ModelType } from '@/components/ModelConfig';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { ModelConfig, type ModelProvider, type ModelType } from '@/components/ModelConfig';
 import { AIServiceFactory } from '@/lib/ai-service';
 
 export default function App() {
@@ -26,28 +27,62 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string>();
   const { toast } = useToast();
-  const [modelProvider, setModelProvider] = useState<ModelProvider>('openai');
-  const [modelType, setModelType] = useState<ModelType>('gpt-4');
-  const aiService = AIServiceFactory.getInstance();
   
+  const [modelProvider, setModelProvider] = useState<ModelProvider>(() => 
+    (localStorage.getItem('ai-provider') as ModelProvider) || 'openai'
+  );
+  const [modelType, setModelType] = useState<ModelType>(() => 
+    (localStorage.getItem('ai-model') as ModelType) || 'gpt-4'
+  );
+  const [isAiConfigured, setIsAiConfigured] = useState(false);
+  const aiService = AIServiceFactory.getInstance();
+
+  // Initialize AI service with stored credentials on mount
+  useEffect(() => {
+    const storedProvider = localStorage.getItem('ai-provider') as ModelProvider;
+    const storedModel = localStorage.getItem('ai-model') as ModelType;
+    const storedApiKey = localStorage.getItem('ai-api-key');
+
+    if (storedProvider && storedModel && storedApiKey) {
+      const success = aiService.configure(storedProvider, storedModel, storedApiKey);
+      setIsAiConfigured(success);
+      setModelProvider(storedProvider);
+      setModelType(storedModel);
+    }
+  }, []);
+
   const handleProviderChange = (provider: ModelProvider) => {
     setModelProvider(provider);
-    // Set default model for the provider
     const defaultModel = provider === 'openai' ? 'gpt-4' : 'claude-3-opus-20240229';
     setModelType(defaultModel as ModelType);
+    updateAiConfiguration(provider, defaultModel as ModelType);
+    localStorage.setItem('ai-provider', provider);
   };
-  
+
   const handleModelChange = (model: ModelType) => {
     setModelType(model);
+    updateAiConfiguration(modelProvider, model);
+    localStorage.setItem('ai-model', model);
   };
-  
+
   const handleApiKeyChange = (apiKey: string) => {
-    aiService.configure(modelProvider, modelType, apiKey);
+    const success = aiService.configure(modelProvider, modelType, apiKey);
+    setIsAiConfigured(success);
+    if (success) {
+      localStorage.setItem('ai-api-key', apiKey);
+    }
+  };
+
+  const updateAiConfiguration = (provider: ModelProvider, model: ModelType) => {
+    const apiKey = localStorage.getItem('ai-api-key');
+    if (apiKey) {
+      const success = aiService.configure(provider, model, apiKey);
+      setIsAiConfigured(success);
+    }
   };
 
   const handleJsonInput = (value: string) => {
     try {
-      // First try to parse the value as-is (handles raw JSON paste)
       JSON.parse(value);
       setJsonInput(value);
       const { formatted } = validateAndFormatJson(value);
@@ -58,7 +93,6 @@ export default function App() {
         formatted: formatted || value
       }));
     } catch {
-      // If parsing fails, try to extract JSON from HTML content
       try {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = value;
@@ -68,7 +102,6 @@ export default function App() {
           return;
         }
         
-        // Validate the extracted JSON
         const { formatted, isValid, error } = validateAndFormatJson(textContent);
         if (!isValid) {
           setError(error?.message);
@@ -89,6 +122,15 @@ export default function App() {
   };
 
   const handleNext = async () => {
+    if (!isAiConfigured) {
+      toast({
+        variant: "destructive",
+        title: "Configuration Required",
+        description: "Please configure your AI settings and provide an API key first.",
+      });
+      return;
+    }
+
     setError(undefined);
 
     if (step === 'json') {
@@ -173,6 +215,16 @@ export default function App() {
         onModelChange={handleModelChange}
         onApiKeyChange={handleApiKeyChange}
       />
+      
+      {!isAiConfigured && (
+        <Alert variant="destructive">
+          <AlertTitle>Configuration Required</AlertTitle>
+          <AlertDescription>
+            Please enter your API key and configure the AI service to enable analysis features.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <StepIndicator currentStep={step} />
 
       <main className="space-y-6">
@@ -229,7 +281,7 @@ export default function App() {
               <Button
                 variant="default"
                 onClick={handleNext}
-                disabled={isAnalyzing}
+                disabled={isAnalyzing || !isAiConfigured}
               >
                 {isAnalyzing ? 'Processing...' : 'Next'}
               </Button>
