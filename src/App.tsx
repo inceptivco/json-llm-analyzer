@@ -53,10 +53,21 @@ export default function App() {
 
   const handleProviderChange = (provider: ModelProvider) => {
     setModelProvider(provider);
+    // Set default model for the provider
     const defaultModel = provider === 'openai' ? 'gpt-4' : 'claude-3-opus-20240229';
     setModelType(defaultModel as ModelType);
-    updateAiConfiguration(provider, defaultModel as ModelType);
-    localStorage.setItem('ai-provider', provider);
+    
+    // Get the stored API key
+    const apiKey = localStorage.getItem('ai-api-key');
+    if (apiKey) {
+      // Reconfigure with new provider
+      const success = aiService.configure(provider, defaultModel as ModelType, apiKey);
+      setIsAiConfigured(success);
+      
+      // Update localStorage
+      localStorage.setItem('ai-provider', provider);
+      localStorage.setItem('ai-model', defaultModel);
+    }
   };
 
   const handleModelChange = (model: ModelType) => {
