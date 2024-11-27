@@ -10,6 +10,8 @@ import { ApplyChanges } from '@/components/ApplyChanges';
 import { StepIndicator } from '@/components/StepIndicator';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { ModelConfig, ModelProvider, ModelType } from '@/components/ModelConfig';
+import { AIServiceFactory } from '@/lib/ai-service';
 
 export default function App() {
   const [step, setStep] = useState<AnalysisStep>('json');
@@ -24,6 +26,24 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string>();
   const { toast } = useToast();
+  const [modelProvider, setModelProvider] = useState<ModelProvider>('openai');
+  const [modelType, setModelType] = useState<ModelType>('gpt-4');
+  const aiService = AIServiceFactory.getInstance();
+  
+  const handleProviderChange = (provider: ModelProvider) => {
+    setModelProvider(provider);
+    // Set default model for the provider
+    const defaultModel = provider === 'openai' ? 'gpt-4' : 'claude-3-opus-20240229';
+    setModelType(defaultModel as ModelType);
+  };
+  
+  const handleModelChange = (model: ModelType) => {
+    setModelType(model);
+  };
+  
+  const handleApiKeyChange = (apiKey: string) => {
+    aiService.configure(modelProvider, modelType, apiKey);
+  };
 
   const handleJsonInput = (value: string) => {
     try {
@@ -146,6 +166,13 @@ export default function App() {
 
   return (
     <div className="container mx-auto max-w-5xl p-6 space-y-8">
+      <ModelConfig 
+        provider={modelProvider}
+        model={modelType}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
+        onApiKeyChange={handleApiKeyChange}
+      />
       <StepIndicator currentStep={step} />
 
       <main className="space-y-6">

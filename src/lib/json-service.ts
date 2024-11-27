@@ -1,11 +1,6 @@
 import { validateAndFormatJson, stripFormatting, formatJsonForDisplay } from './json-utils';
 import type { MatchResult } from './types';
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
+import { AIServiceFactory } from './ai-service';
 
 const ENHANCE_JSON_PROMPT = `You are an intelligent JSON enhancement system. Your task is to enrich the provided JSON with additional meaningful details while maintaining its original structure and learned context.
 
@@ -28,45 +23,6 @@ But only if these are logically connected to the existing data.
 
 Return the enhanced JSON object maintaining the original structure.`;
 
-export async function enhanceJson(
-  jsonString: string,
-  matches: MatchResult[]
-): Promise<string> {
-  try {
-    const cleanJson = stripFormatting(jsonString);
-
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: ENHANCE_JSON_PROMPT },
-        {
-          role: 'user',
-          content: `Enhance this JSON with meaningful, contextual details:
-
-Original JSON with applied matches:
-${cleanJson}
-
-Context from matches:
-${JSON.stringify(matches, null, 2)}
-
-Return ONLY a valid JSON object with no additional text or explanation.`
-        }
-      ],
-      temperature: 0.7,
-    });
-
-    const enhancedJson = response.choices[0].message.content;
-    if (!enhancedJson) {
-      throw new Error('No response from OpenAI');
-    }
-
-    return formatJsonForDisplay(enhancedJson);
-  } catch (error) {
-    console.error('Error enhancing JSON:', error);
-    throw new Error('Failed to enhance JSON. Please try again.');
-  }
-}
-
 const UPDATE_JSON_PROMPT = `You are a precise JSON updating system. Your task is to update an existing JSON structure with new values while maintaining the original structure.
 
 Instructions:
@@ -79,6 +35,42 @@ Instructions:
 
 Format the response as a valid JSON object that matches the original structure with updates applied.`;
 
+export async function enhanceJson(
+  jsonString: string,
+  matches: MatchResult[]
+): Promise<string> {
+  try {
+    const cleanJson = stripFormatting(jsonString);
+    const aiService = AIServiceFactory.getInstance();
+
+    const response = await aiService.createCompletion([
+      { role: 'system', content: ENHANCE_JSON_PROMPT },
+      {
+        role: 'user',
+        content: `Enhance this JSON with meaningful, contextual details:
+
+Original JSON with applied matches:
+${cleanJson}
+
+Context from matches:
+${JSON.stringify(matches, null, 2)}
+
+Return ONLY a valid JSON object with no additional text or explanation.`
+      }
+    ], { temperature: 0.7 });
+
+    const enhancedJson = response.choices[0].message.content;
+    if (!enhancedJson) {
+      throw new Error('No response from AI service');
+    }
+
+    return formatJsonForDisplay(enhancedJson);
+  } catch (error) {
+    console.error('Error enhancing JSON:', error);
+    throw new Error('Failed to enhance JSON. Please try again.');
+  }
+}
+
 export async function updateJsonWithMatches(
   jsonString: string,
   matches: MatchResult[]
@@ -88,7 +80,6 @@ export async function updateJsonWithMatches(
       return formatJsonForDisplay(jsonString);
     }
 
-    // Filter matches with confidence >= 30%
     const validMatches = matches
       .filter(match => match.confidence >= 30)
       .sort((a, b) => b.confidence - a.confidence);
@@ -97,105 +88,42 @@ export async function updateJsonWithMatches(
       return formatJsonForDisplay(jsonString);
     }
 
-    // Prepare the matches in a more structured format for the LLM
-    const matchData = validMatches.map(match => ({
-      property: match.property,
-      value: match.matchedText.trim(),
-      confidence: match.confidence,
-      matchType: match.matchType
-    }));
+    // First, parse the original JSON
+    const jsonObj = JSON.parse(stripFormatting(jsonString));
 
-    try {
-      // Clean the input JSON
-      const cleanJson = stripFormatting(jsonString);
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: UPDATE_JSON_PROMPT },
-          {
-            role: 'user',
-            content: `Update this JSON structure with the following matches:
-
-Original JSON:
-${cleanJson}
-
-Matches to apply (only apply matches with confidence >= 30%):
-${JSON.stringify(matchData, null, 2)}
-
-Return only the updated JSON structure, ensuring all original properties are preserved and only matched properties are updated. Maintain exact types of values.`
-          }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-      });
-
-      const updatedJson = response.choices[0].message.content;
-      if (!updatedJson) {
-        throw new Error('No response from OpenAI');
+    // Apply the matches directly to the JSON object
+    validMatches.forEach(match => {
+      const propertyPath = match.property.split('.');
+      let current = jsonObj;
+      
+      // Navigate to the nested property
+      for (let i = 0; i < propertyPath.length - 1; i++) {
+        if (current[propertyPath[i]] === undefined) {
+          current[propertyPath[i]] = {};
+        }
+        current = current[propertyPath[i]];
       }
 
-      // Validate the updated JSON
-      const { isValid, formatted, error } = validateAndFormatJson(updatedJson);
-      if (!isValid || error) {
-        console.error('Invalid JSON response from OpenAI:', error);
-        return formatJsonForDisplay(jsonString);
+      // Update the value, maintaining the correct type
+      const lastProp = propertyPath[propertyPath.length - 1];
+      const currentValue = current[lastProp];
+      const newValue = match.matchedText.trim();
+
+      // Type conversion based on the original value's type
+      if (typeof currentValue === 'number') {
+        current[lastProp] = Number(newValue) || currentValue;
+      } else if (typeof currentValue === 'boolean') {
+        current[lastProp] = newValue.toLowerCase() === 'true';
+      } else {
+        current[lastProp] = newValue;
       }
+    });
 
-      // Return the formatted version for display
-      return formatted || formatJsonForDisplay(updatedJson);
+    // Format the updated JSON for display
+    return formatJsonForDisplay(JSON.stringify(jsonObj, null, 2));
 
-    } catch (error) {
-      console.error('OpenAI API error:', error);
-      throw new Error('Failed to update JSON using AI. Please try again.');
-    }
   } catch (error) {
     console.error('Error updating JSON:', error);
     return formatJsonForDisplay(jsonString);
-  }
-}
-
-export function validateJsonUpdates(
-  original: string,
-  updated: string
-): { isValid: boolean; error?: string } {
-  try {
-    const originalObj = JSON.parse(original);
-    const updatedObj = JSON.parse(updated);
-
-    // Validate structure consistency
-    const validateStructure = (orig: any, upd: any, path: string = ''): string | null => {
-      if (typeof orig !== typeof upd) {
-        return `Type mismatch at ${path || 'root'}`;
-      }
-
-      if (Array.isArray(orig) !== Array.isArray(upd)) {
-        return `Array structure mismatch at ${path || 'root'}`;
-      }
-
-      if (typeof orig === 'object' && orig !== null) {
-        for (const key in orig) {
-          if (!(key in upd)) {
-            return `Missing property "${key}" at ${path || 'root'}`;
-          }
-          const result = validateStructure(orig[key], upd[key], path ? `${path}.${key}` : key);
-          if (result) return result;
-        }
-      }
-
-      return null;
-    };
-
-    const structureError = validateStructure(originalObj, updatedObj);
-    if (structureError) {
-      return { isValid: false, error: structureError };
-    }
-
-    return { isValid: true };
-  } catch (error) {
-    return { 
-      isValid: false, 
-      error: error instanceof Error ? error.message : 'Invalid JSON structure' 
-    };
   }
 }

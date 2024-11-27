@@ -8,6 +8,7 @@ import { Copy, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { MatchResult } from '@/lib/types';
 import { enhanceJson } from '@/lib/json-service'; 
+import hljs from 'highlight.js';
 
 interface ApplyChangesProps {
   originalJson: string;
@@ -15,10 +16,40 @@ interface ApplyChangesProps {
   matches: MatchResult[];
 }
 
+function highlightChanges(original: any, updated: any): string {
+  try {
+    const originalObj = typeof original === 'string' ? JSON.parse(stripFormatting(original)) : original;
+    const updatedObj = typeof updated === 'string' ? JSON.parse(stripFormatting(updated)) : updated;
+    
+    const highlighted = JSON.stringify(updatedObj, null, 2)
+      .split('\n')
+      .map(line => {
+        const match = line.match(/"([^"]+)":\s*"([^"]+)"/);
+        if (match) {
+          const [, key, value] = match;
+          const originalValue = originalObj[key];
+          if (originalValue !== value) {
+            return line.replace(
+              `"${value}"`,
+              `<span class="bg-green-500/20 dark:bg-green-500/30 px-1 rounded">"${value}"</span>`
+            );
+          }
+        }
+        return line;
+      })
+      .join('\n');
+
+    return hljs.highlight(highlighted, { language: 'json' }).value;
+  } catch (error) {
+    console.error('Error highlighting changes:', error);
+    return updated;
+  }
+}
+
 export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChangesProps) {
   const [formattedJson, setFormattedJson] = useState('');
   const [rawJson, setRawJson] = useState('');
-  const [, setError] = useState<string>();
+  const [error, setError] = useState<string>();
   const [isEnhancing, setIsEnhancing] = useState(false);
   const validMatches = matches.filter(match => match.confidence >= 30);
   const { toast } = useToast();
@@ -104,7 +135,7 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
               ))}
               {validMatches.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  No changes were applied (no matches with confidence ≥ 70%)
+                  No changes were applied (no matches with confidence ≥ 30%)
                 </p>
               )}
             </div>
@@ -138,7 +169,9 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
           <ScrollArea className="h-[400px]">
             <pre
               className="p-4 font-mono text-sm"
-              dangerouslySetInnerHTML={{ __html: formattedJson }}
+              dangerouslySetInnerHTML={{ 
+                __html: highlightChanges(originalJson, formattedJson) 
+              }}
             />
           </ScrollArea>
         </CardContent>
