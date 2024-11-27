@@ -88,40 +88,40 @@ export async function updateJsonWithMatches(
       return formatJsonForDisplay(jsonString);
     }
 
-    // First, parse the original JSON
-    const jsonObj = JSON.parse(stripFormatting(jsonString));
+    const cleanJson = stripFormatting(jsonString);
+    const aiService = AIServiceFactory.getInstance();
 
-    // Apply the matches directly to the JSON object
-    validMatches.forEach(match => {
-      const propertyPath = match.property.split('.');
-      let current = jsonObj;
-      
-      // Navigate to the nested property
-      for (let i = 0; i < propertyPath.length - 1; i++) {
-        if (current[propertyPath[i]] === undefined) {
-          current[propertyPath[i]] = {};
-        }
-        current = current[propertyPath[i]];
+    const response = await aiService.createCompletion([
+      { role: 'system', content: UPDATE_JSON_PROMPT },
+      {
+        role: 'user',
+        content: `Update this JSON structure with the following matches:
+
+Original JSON:
+${cleanJson}
+
+Matches to apply (only apply matches with confidence >= 30%):
+${JSON.stringify(validMatches, null, 2)}
+
+Return only the updated JSON structure as a valid JSON object, with no markdown formatting or additional text.`
       }
+    ], { temperature: 0.2 });
 
-      // Update the value, maintaining the correct type
-      const lastProp = propertyPath[propertyPath.length - 1];
-      const currentValue = current[lastProp];
-      const newValue = match.matchedText.trim();
+    let updatedJson = response.choices[0].message.content;
+    if (!updatedJson) {
+      throw new Error('No response from AI service');
+    }
 
-      // Type conversion based on the original value's type
-      if (typeof currentValue === 'number') {
-        current[lastProp] = Number(newValue) || currentValue;
-      } else if (typeof currentValue === 'boolean') {
-        current[lastProp] = newValue.toLowerCase() === 'true';
-      } else {
-        current[lastProp] = newValue;
-      }
-    });
+    // Clean up any markdown code block indicators
+    updatedJson = updatedJson.replace(/^```json\n|\n```$/g, '').trim();
 
-    // Format the updated JSON for display
-    return formatJsonForDisplay(JSON.stringify(jsonObj, null, 2));
+    // Validate the JSON
+    const { formatted, isValid, error } = validateAndFormatJson(updatedJson);
+    if (!isValid || error) {
+      throw new Error('Invalid JSON response from AI service');
+    }
 
+    return formatted || updatedJson;
   } catch (error) {
     console.error('Error updating JSON:', error);
     return formatJsonForDisplay(jsonString);

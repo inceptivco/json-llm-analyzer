@@ -7,8 +7,9 @@ import { validateAndFormatJson, stripFormatting } from '@/lib/json-utils';
 import { Copy, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { MatchResult } from '@/lib/types';
-import { enhanceJson } from '@/lib/json-service'; 
+import { enhanceJson } from '@/lib/json-service';
 import hljs from 'highlight.js';
+import 'highlight.js/styles/github-dark.css';
 
 interface ApplyChangesProps {
   originalJson: string;
@@ -16,33 +17,20 @@ interface ApplyChangesProps {
   matches: MatchResult[];
 }
 
-function highlightChanges(original: any, updated: any): string {
+function formatJsonWithSyntaxHighlighting(jsonString: string): string {
   try {
-    const originalObj = typeof original === 'string' ? JSON.parse(stripFormatting(original)) : original;
-    const updatedObj = typeof updated === 'string' ? JSON.parse(stripFormatting(updated)) : updated;
+    // Remove any markdown code block indicators
+    const cleanJson = jsonString.replace(/^```json\n|\n```$/g, '').trim();
     
-    const highlighted = JSON.stringify(updatedObj, null, 2)
-      .split('\n')
-      .map(line => {
-        const match = line.match(/"([^"]+)":\s*"([^"]+)"/);
-        if (match) {
-          const [, key, value] = match;
-          const originalValue = originalObj[key];
-          if (originalValue !== value) {
-            return line.replace(
-              `"${value}"`,
-              `<span class="bg-green-500/20 dark:bg-green-500/30 px-1 rounded">"${value}"</span>`
-            );
-          }
-        }
-        return line;
-      })
-      .join('\n');
-
-    return hljs.highlight(highlighted, { language: 'json' }).value;
+    // First ensure we have valid JSON
+    const parsed = JSON.parse(stripFormatting(cleanJson));
+    const formatted = JSON.stringify(parsed, null, 2);
+    
+    // Apply syntax highlighting
+    return hljs.highlight(formatted, { language: 'json' }).value;
   } catch (error) {
-    console.error('Error highlighting changes:', error);
-    return updated;
+    console.error('Error formatting JSON:', error);
+    return jsonString;
   }
 }
 
@@ -56,25 +44,19 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
 
   useEffect(() => {
     try {
-      const cleanJson = stripFormatting(updatedJson);
-      const { formatted, isValid, error, raw } = validateAndFormatJson(cleanJson);
+      // Store the raw JSON for copying
+      setRawJson(stripFormatting(updatedJson));
       
-      if (isValid && formatted) {
-        setFormattedJson(formatted);
-        setRawJson(raw || cleanJson);
-        setError(undefined);
-      } else if (error) {
-        setError(error.message);
-        const { formatted: originalFormatted, raw: originalRaw } = validateAndFormatJson(originalJson);
-        setFormattedJson(originalFormatted || originalJson);
-        setRawJson(originalRaw || originalJson);
-      }
+      // Format and highlight the JSON for display
+      const highlighted = formatJsonWithSyntaxHighlighting(updatedJson);
+      setFormattedJson(highlighted);
+      setError(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to format JSON');
-      setFormattedJson(originalJson);
-      setRawJson(originalJson);
+      setFormattedJson(updatedJson);
+      setRawJson(updatedJson);
     }
-  }, [updatedJson, originalJson]);
+  }, [updatedJson]);
 
   const handleCopy = async () => {
     try {
@@ -96,7 +78,8 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
     setIsEnhancing(true);
     try {
       const enhanced = await enhanceJson(rawJson, validMatches);
-      setFormattedJson(enhanced);
+      const highlighted = formatJsonWithSyntaxHighlighting(enhanced);
+      setFormattedJson(highlighted);
       setRawJson(stripFormatting(enhanced));
       toast({
         description: "JSON enhanced successfully",
@@ -167,11 +150,9 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[400px]">
-            <pre
+            <pre 
               className="p-4 font-mono text-sm"
-              dangerouslySetInnerHTML={{ 
-                __html: highlightChanges(originalJson, formattedJson) 
-              }}
+              dangerouslySetInnerHTML={{ __html: formattedJson }}
             />
           </ScrollArea>
         </CardContent>
