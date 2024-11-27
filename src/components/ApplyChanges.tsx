@@ -3,13 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { validateAndFormatJson, stripFormatting } from '@/lib/json-utils';
+import { stripFormatting } from '@/lib/json-utils';
 import { Copy, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { MatchResult } from '@/lib/types';
 import { enhanceJson } from '@/lib/json-service';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
+import { trackEvent, trackError } from '@/lib/analytics-service';
 
 interface ApplyChangesProps {
   originalJson: string;
@@ -34,10 +35,9 @@ function formatJsonWithSyntaxHighlighting(jsonString: string): string {
   }
 }
 
-export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChangesProps) {
+export function ApplyChanges({ updatedJson, matches }: ApplyChangesProps) {
   const [formattedJson, setFormattedJson] = useState('');
   const [rawJson, setRawJson] = useState('');
-  const [error, setError] = useState<string>();
   const [isEnhancing, setIsEnhancing] = useState(false);
   const validMatches = matches.filter(match => match.confidence >= 30);
   const { toast } = useToast();
@@ -50,9 +50,7 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
       // Format and highlight the JSON for display
       const highlighted = formatJsonWithSyntaxHighlighting(updatedJson);
       setFormattedJson(highlighted);
-      setError(undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to format JSON');
       setFormattedJson(updatedJson);
       setRawJson(updatedJson);
     }
@@ -61,11 +59,15 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(rawJson);
+      trackEvent('copy_json', {
+        jsonLength: rawJson.length
+      });
       toast({
         description: "JSON copied to clipboard",
         duration: 2000,
       });
     } catch (err) {
+      trackError(err as Error, 'copy_json');
       toast({
         variant: "destructive",
         description: "Failed to copy JSON",
@@ -81,11 +83,18 @@ export function ApplyChanges({ originalJson, updatedJson, matches }: ApplyChange
       const highlighted = formatJsonWithSyntaxHighlighting(enhanced);
       setFormattedJson(highlighted);
       setRawJson(stripFormatting(enhanced));
+      
+      trackEvent('enhance_json', {
+        jsonLength: enhanced.length,
+        matchCount: validMatches.length
+      });
+      
       toast({
         description: "JSON enhanced successfully",
         duration: 2000,
       });
     } catch (err) {
+      trackError(err as Error, 'enhance_json');
       toast({
         variant: "destructive",
         description: err instanceof Error ? err.message : "Failed to enhance JSON",

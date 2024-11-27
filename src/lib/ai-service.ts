@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ModelProvider, ModelType } from '@/components/ModelConfig';
-import { ANALYSIS_PROMPT, UPDATE_JSON_PROMPT } from './prompts';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -12,6 +11,14 @@ interface CompletionOptions {
   temperature?: number;
   max_tokens?: number;
   [key: string]: any;
+}
+
+interface CompletionResponse {
+  choices: Array<{
+    message: {
+      content: string | null;
+    };
+  }>;
 }
 
 export class AIServiceFactory {
@@ -68,7 +75,7 @@ export class AIServiceFactory {
     }
   }
 
-  async createCompletion(messages: Message[], options: CompletionOptions = {}) {
+  async createCompletion(messages: Message[], options: CompletionOptions = {}): Promise<CompletionResponse> {
     if (!this.isConfigured()) {
       throw new Error('AI service not properly configured');
     }
@@ -76,6 +83,8 @@ export class AIServiceFactory {
     try {
       switch (this.provider) {
         case 'openai': {
+          if (!this.client) throw new Error('OpenAI client not initialized');
+          
           const response = await (this.client as OpenAI).chat.completions.create({
             model: this.model as string,
             messages,
@@ -87,14 +96,15 @@ export class AIServiceFactory {
           return {
             choices: [{
               message: {
-                content: response.choices[0].message.content
+                content: response.choices[0]?.message?.content ?? null
               }
             }]
           };
         }
 
         case 'anthropic': {
-          // Combine system and user messages for Anthropic
+          if (!this.client) throw new Error('Anthropic client not initialized');
+
           const systemMessage = messages.find(m => m.role === 'system')?.content || '';
           const userMessage = messages.find(m => m.role === 'user')?.content || '';
           const combinedMessage = systemMessage ? `${systemMessage}\n\n${userMessage}` : userMessage;
@@ -110,10 +120,20 @@ export class AIServiceFactory {
             ...options
           });
 
+          let content: string | null = null;
+
+          // Safely extract text content from the response
+          if (response.content && response.content.length > 0) {
+            const firstContent = response.content[0];
+            if ('text' in firstContent && typeof firstContent.text === 'string') {
+              content = firstContent.text;
+            }
+          }
+
           return {
             choices: [{
               message: {
-                content: response.content[0].text
+                content
               }
             }]
           };
@@ -143,17 +163,17 @@ export class AIServiceFactory {
     return this.provider as ModelProvider;
   }
 
-  getClient() {
-    if (!this.isConfigured()) {
+  getClient(): OpenAI | Anthropic {
+    if (!this.isConfigured() || !this.client) {
       throw new Error('AI service not properly configured');
     }
     return this.client;
   }
 
   getModel(): string {
-    if (!this.isConfigured()) {
+    if (!this.isConfigured() || !this.model) {
       throw new Error('AI service not configured');
     }
-    return this.model as string;
+    return this.model;
   }
 }

@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { ModelConfig, type ModelProvider, type ModelType } from '@/components/ModelConfig';
 import { AIServiceFactory } from '@/lib/ai-service';
+import { trackEvent, trackError } from '@/lib/analytics-service';
 
 export default function App() {
   const [step, setStep] = useState<AnalysisStep>('json');
@@ -108,6 +109,9 @@ export default function App() {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = value;
         const textContent = tempDiv.textContent || tempDiv.innerText;
+        trackEvent('json_input', {
+          jsonLength: value.length
+        });
         if (!textContent) {
           setError('Invalid JSON input');
           return;
@@ -128,6 +132,7 @@ export default function App() {
         }));
       } catch (err) {
         setError('Invalid JSON input');
+        trackError(new Error('Invalid JSON input'), 'json_input');
       }
     }
   };
@@ -219,7 +224,7 @@ export default function App() {
 
   return (
     <div className="container mx-auto max-w-5xl p-6 space-y-8">
-      <ModelConfig 
+      <ModelConfig
         provider={modelProvider}
         model={modelType}
         onProviderChange={handleProviderChange}
