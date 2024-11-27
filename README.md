@@ -1,7 +1,7 @@
 # json-llm-analyzer
 
-###Steps to run
-'''
+### Steps to run
+```
 nvm install
 npm run dev
-'''
+```
